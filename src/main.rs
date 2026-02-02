@@ -11,7 +11,7 @@ use tokio::time::sleep;
 // CONFIGURATION
 const CHECK_INTERVAL_SECONDS: u64 = 300; // Check every 5 minutes
 const STATE_FILE: &str = "state.json";
-const DISCORD_WEBHOOK_URL: &str = "https://discord.com/api/webhooks/1466735930902712422/afxwMtHyh94WEkHLOwTB2NtwgAYxxSZ9tkLNjaqSBOYChwzs54a9YlKeshypkFuDBpq9";
+const DISCORD_WEBHOOK_URL: &str = "https://discord.com/api/webhooks/1467986078387671183/onsmT6nJ2pIGhzcgUyhzVG_nWdx0Is5ipG5Ava3WYBXAm87scR8M8qS3ZepPx2zT9GW3";
 
 #[derive(Debug)]
 struct FeedConfig {
