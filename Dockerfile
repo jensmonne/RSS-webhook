@@ -4,12 +4,12 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 
 WORKDIR /usr/src/app
 
-COPY Cargo.toml .
+COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release
+RUN rm -f target/release/deps/rsswebhook*
 
 COPY src ./src
-RUN touch src/main.rs
 RUN cargo build --release
 RUN strip target/release/rsswebhook
 
