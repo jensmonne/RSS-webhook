@@ -21,10 +21,10 @@ FROM debian:bullseye-slim
 RUN apt-get update && apt-get install -y libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from the builder stage
-COPY --from=builder /usr/src/app/target/release/arch_news_webhook /usr/local/bin/arch_news_webhook
+COPY --from=builder /usr/src/app/target/release/rsswebhook /usr/local/bin/rsswebhook
 
 # Set the working directory to where we will map the volume
 WORKDIR /data
 
 # Run the binary
-CMD ["arch_news_webhook"]
+CMD ["rsswebhook"]

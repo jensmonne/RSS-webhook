@@ -77,21 +77,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "archwebhook"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "dotenvy",
- "env_logger",
- "log",
- "reqwest",
- "rss",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
 name = "atom_syndication"
 version = "0.12.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1222,6 +1207,21 @@ dependencies = [
  "derive_builder",
  "never",
  "quick-xml",
+]
+
+[[package]]
+name = "rsswebhook"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dotenvy",
+ "env_logger",
+ "log",
+ "reqwest",
+ "rss",
+ "serde",
+ "serde_json",
+ "ureq",
 ]
 
 [[package]]
