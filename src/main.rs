@@ -181,10 +181,25 @@ fn send_discord_webhook(
     let title = item.title().unwrap_or("No Title");
     let link = item.link().unwrap_or("");
 
-    let description = match item.description() {
-        Some(d) if d.len() > 200 => Cow::Owned(format!("{}...", &d[0..200])),
-        Some(d) => Cow::Borrowed(d),
-        None => Cow::Borrowed("No description"),
+    let raw_desc = item.description().unwrap_or("No description");
+
+    let mut cleaned_desc = String::with_capacity(raw_desc.len());
+    let mut inside_tag = false;
+    for c in raw_desc.chars() {
+        match c {
+            '<' => inside_tag = true,
+            '>' => inside_tag = false,
+            _ if !inside_tag => cleaned_desc.push(c),
+            _ => {}
+        }
+    }
+
+    let final_desc = cleaned_desc.replace("&nbsp;", " ").trim().to_string();
+
+    let description = if final_desc.len() > 200 {
+        Cow::Owned(format!("{}...", &final_desc[0..200]))
+    } else {
+        Cow::Owned(final_desc)
     };
 
     let payload = DiscordMessage {
@@ -195,7 +210,7 @@ fn send_discord_webhook(
             description,
             color,
             footer: DiscordFooter {
-                text: Cow::Owned(format!("Source: {}", feed_title)),
+                text: Cow::Owned(format!("{}", feed_title)),
             },
             timestamp: Utc::now().to_rfc3339(),
         }],
