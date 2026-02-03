@@ -1,17 +1,18 @@
 use chrono::{DateTime, FixedOffset, Utc};
-use reqwest::Client;
+use dotenvy::dotenv;
 use rss::Channel;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env;
 use std::error::Error;
 use std::fs;
+use std::io::Read;
+use std::thread;
 use std::time::Duration;
-use tokio::time::sleep;
 
 // CONFIGURATION
-const CHECK_INTERVAL_SECONDS: u64 = 300; // Check every 5 minutes
+const CHECK_INTERVAL_SECONDS: u64 = 300;
 const STATE_FILE: &str = "state.json";
-const DISCORD_WEBHOOK_URL: &str = "https://discord.com/api/webhooks/1467986078387671183/onsmT6nJ2pIGhzcgUyhzVG_nWdx0Is5ipG5Ava3WYBXAm87scR8M8qS3ZepPx2zT9GW3";
 
 #[derive(Debug)]
 struct FeedConfig {
@@ -22,15 +23,14 @@ struct FeedConfig {
 const FEEDS: &[FeedConfig] = &[
     FeedConfig {
         url: "https://archlinux.org/feeds/packages/x86_64/core/",
-        color: 1791981, // Arch Blue (#1793D1)
+        color: 1791981, // Arch Blue
     },
     FeedConfig {
         url: "https://archlinux.org/feeds/news/",
-        color: 13438481, // Orange (#E67E22) to make news stand out
+        color: 13438481, // Orange
     },
 ];
 
-// Data structure to save the last seen timestamp for each feed
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct AppState {
     last_seen: HashMap<String, DateTime<FixedOffset>>,
@@ -58,7 +58,6 @@ impl AppState {
     }
 }
 
-// Structure for Discord Webhook Payload
 #[derive(Serialize)]
 struct DiscordMessage {
     username: String,
@@ -80,21 +79,23 @@ struct DiscordFooter {
     text: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+// No #[tokio::main] needed anymore!
+fn main() -> Result<(), Box<dyn Error>> {
+    dotenv().ok();
     env_logger::init();
-    let client = Client::new();
 
-    println!("Arch Linux News Bot started.");
+    let webhook_url = env::var("DISCORD_WEBHOOK_URL")
+        .expect("DISCORD_WEBHOOK_URL must be set in .env or environment");
+
+    println!("Arch Linux News Bot started (Lightweight Mode).");
     println!("Monitoring feeds: {:?}", FEEDS);
 
     loop {
         let mut state = AppState::load();
         let mut state_changed = false;
 
-        // Iterate over the Config structs now, not just strings
         for feed in FEEDS {
-            match fetch_and_process_feed(&client, feed, &mut state).await {
+            match fetch_and_process_feed(feed, &mut state, &webhook_url) {
                 Ok(updated) => {
                     if updated {
                         state_changed = true;
@@ -108,59 +109,80 @@ async fn main() -> Result<(), Box<dyn Error>> {
             state.save();
         }
 
-        sleep(Duration::from_secs(CHECK_INTERVAL_SECONDS)).await;
+        // Standard thread sleep
+        thread::sleep(Duration::from_secs(CHECK_INTERVAL_SECONDS));
     }
 }
 
-// Updated to accept &FeedConfig instead of just &str
-async fn fetch_and_process_feed(
-    client: &Client,
+// Removed 'async', removed 'Client' (ureq creates agents on the fly or you can reuse one)
+fn fetch_and_process_feed(
     feed_config: &FeedConfig,
     state: &mut AppState,
+    webhook_url: &str,
 ) -> Result<bool, Box<dyn Error>> {
-    let content = client.get(feed_config.url).send().await?.bytes().await?;
+    // ureq blocking call
+    let response = ureq::get(feed_config.url).call()?;
+    let mut content = Vec::new();
+    response.into_reader().read_to_end(&mut content)?;
+
     let channel = Channel::read_from(&content[..])?;
 
-    // Default start date (Update this if you want to skip old items)
-    let last_seen_date = *state
-        .last_seen
-        .get(feed_config.url)
-        .unwrap_or(&DateTime::parse_from_rfc3339("2025-10-01T00:00:00+00:00")?);
-
-    let mut new_max_date = last_seen_date;
-    let mut sent_update = false;
-
-    for item in channel.items().iter().rev() {
+    // Parse dates
+    let mut items_with_dates: Vec<(&rss::Item, DateTime<FixedOffset>)> = Vec::new();
+    for item in channel.items() {
         if let Some(pub_date_str) = item.pub_date() {
-            let item_date = DateTime::parse_from_rfc2822(pub_date_str)?;
-
-            if item_date > last_seen_date {
-                // Pass the color from the config to the sender function
-                send_discord_webhook(client, item, &channel.title, feed_config.color).await?;
-
-                if item_date > new_max_date {
-                    new_max_date = item_date;
-                }
-                sent_update = true;
-                sleep(Duration::from_millis(500)).await;
+            if let Ok(date) = DateTime::parse_from_rfc2822(pub_date_str) {
+                items_with_dates.push((item, date));
             }
         }
     }
 
-    if sent_update {
-        state
-            .last_seen
-            .insert(feed_config.url.to_string(), new_max_date);
+    let last_seen_option = state.last_seen.get(feed_config.url);
+
+    let items_to_send = match last_seen_option {
+        Some(&last_seen) => {
+            let mut newer: Vec<_> = items_with_dates
+                .into_iter()
+                .filter(|(_, d)| *d > last_seen)
+                .collect();
+            newer.sort_by_key(|(_, d)| *d);
+            newer
+        }
+        None => {
+            items_with_dates.sort_by(|a, b| b.1.cmp(&a.1));
+            let mut top_3: Vec<_> = items_with_dates.into_iter().take(3).collect();
+            top_3.reverse();
+            top_3
+        }
+    };
+
+    if items_to_send.is_empty() {
+        return Ok(false);
     }
 
-    Ok(sent_update)
+    let mut current_max_date = last_seen_option.cloned().unwrap_or(items_to_send[0].1);
+
+    for (item, date) in items_to_send {
+        send_discord_webhook(item, &channel.title, feed_config.color, webhook_url)?;
+
+        if date > current_max_date {
+            current_max_date = date;
+        }
+        // Standard thread sleep
+        thread::sleep(Duration::from_millis(1000));
+    }
+
+    state
+        .last_seen
+        .insert(feed_config.url.to_string(), current_max_date);
+    Ok(true)
 }
 
-async fn send_discord_webhook(
-    client: &Client,
+fn send_discord_webhook(
     item: &rss::Item,
     feed_title: &str,
-    color: u32, // Added color parameter
+    color: u32,
+    webhook_url: &str,
 ) -> Result<(), Box<dyn Error>> {
     let title = item.title().unwrap_or("No Title").to_string();
     let link = item.link().unwrap_or("").to_string();
@@ -178,7 +200,7 @@ async fn send_discord_webhook(
             title,
             url: link,
             description: clean_desc,
-            color, // Use the dynamic color passed in
+            color,
             footer: DiscordFooter {
                 text: format!("Source: {}", feed_title),
             },
@@ -186,17 +208,12 @@ async fn send_discord_webhook(
         }],
     };
 
-    let res = client
-        .post(DISCORD_WEBHOOK_URL)
-        .json(&payload)
-        .send()
-        .await?;
+    // ureq JSON posting
+    let _ = ureq::post(webhook_url).send_json(&payload)?;
 
-    if !res.status().is_success() {
-        eprintln!("Failed to send webhook: Status {}", res.status());
-    } else {
-        println!("Sent update: {}", item.title().unwrap_or("Unknown"));
-    }
+    // ureq throws an error automatically on 4xx/5xx status codes,
+    // so if we get here, it succeeded.
+    println!("Sent update: {}", item.title().unwrap_or("Unknown"));
 
     Ok(())
 }
