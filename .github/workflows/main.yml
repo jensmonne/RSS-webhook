@@ -2,7 +2,7 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   build_and_push:
@@ -31,3 +31,5 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/rss-webhook:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
