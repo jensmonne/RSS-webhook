@@ -11,7 +11,6 @@ use std::io::Read;
 use std::thread;
 use std::time::Duration;
 
-// CONFIGURATION
 const CHECK_INTERVAL_SECONDS: u64 = 300;
 const STATE_FILE: &str = "state.json";
 
@@ -86,7 +85,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let webhook_url = env::var("DISCORD_WEBHOOK_URL")
         .expect("DISCORD_WEBHOOK_URL must be set in .env or environment");
 
-    println!("Arch Linux News Bot started (Lightweight Mode).");
+    println!("RSS webhook started.");
     println!("Monitoring feeds: {:?}", FEEDS);
 
     loop {
