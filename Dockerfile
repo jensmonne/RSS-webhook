@@ -1,4 +1,4 @@
-FROM rust:1.80-slim-bullseye AS builder
+FROM rust:slim-bullseye AS builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
