@@ -82,7 +82,6 @@ struct DiscordFooter {
 // No #[tokio::main] needed anymore!
 fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
-    env_logger::init();
 
     let webhook_url = env::var("DISCORD_WEBHOOK_URL")
         .expect("DISCORD_WEBHOOK_URL must be set in .env or environment");
@@ -184,22 +183,21 @@ fn send_discord_webhook(
     color: u32,
     webhook_url: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let title = item.title().unwrap_or("No Title").to_string();
-    let link = item.link().unwrap_or("").to_string();
-    let description = item.description().unwrap_or("No description").to_string();
-
-    let clean_desc = if description.len() > 200 {
-        format!("{}...", &description[0..200])
-    } else {
-        description
-    };
-
     let payload = DiscordMessage {
         username: "Arch Linux Bot".to_string(),
         embeds: vec![DiscordEmbed {
-            title,
-            url: link,
-            description: clean_desc,
+            title: item.title().unwrap_or("No Title").to_string(),
+            url: item.link().unwrap_or("").to_string(),
+            description: item
+                .description()
+                .map(|d| {
+                    if d.len() > 200 {
+                        format!("{}...", &d[0..200])
+                    } else {
+                        d.to_string()
+                    }
+                })
+                .unwrap_or_else(|| "No description".to_string()),
             color,
             footer: DiscordFooter {
                 text: format!("Source: {}", feed_title),
@@ -208,12 +206,11 @@ fn send_discord_webhook(
         }],
     };
 
-    // ureq JSON posting
-    let _ = ureq::post(webhook_url).send_json(&payload)?;
+    let body = serde_json::to_vec(&payload)?;
+    ureq::post(webhook_url)
+        .set("Content-Type", "application/json")
+        .send_bytes(&body)?;
 
-    // ureq throws an error automatically on 4xx/5xx status codes,
-    // so if we get here, it succeeded.
     println!("Sent update: {}", item.title().unwrap_or("Unknown"));
-
     Ok(())
 }
