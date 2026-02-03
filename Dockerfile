@@ -15,6 +15,7 @@ COPY src ./src
 # This touch ensures Cargo sees the file as "new"
 RUN touch src/main.rs
 RUN cargo build --release
+RUN strip target/release/rsswebhook
 
 # -- Runtime --
 FROM debian:bullseye-slim

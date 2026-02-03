@@ -2,6 +2,7 @@ use chrono::{DateTime, FixedOffset, Utc};
 use dotenvy::dotenv;
 use rss::Channel;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
 use std::error::Error;
@@ -23,11 +24,11 @@ struct FeedConfig {
 const FEEDS: &[FeedConfig] = &[
     FeedConfig {
         url: "https://archlinux.org/feeds/packages/x86_64/core/",
-        color: 1791981, // Arch Blue
+        color: 1791981, // Blue
     },
     FeedConfig {
         url: "https://archlinux.org/feeds/news/",
-        color: 13438481, // Orange
+        color: 13438481, // Red
     },
 ];
 
@@ -59,27 +60,26 @@ impl AppState {
 }
 
 #[derive(Serialize)]
-struct DiscordMessage {
-    username: String,
-    embeds: Vec<DiscordEmbed>,
+struct DiscordMessage<'a> {
+    username: Cow<'a, str>,
+    embeds: Vec<DiscordEmbed<'a>>,
 }
 
 #[derive(Serialize)]
-struct DiscordEmbed {
-    title: String,
-    url: String,
-    description: String,
+struct DiscordEmbed<'a> {
+    title: Cow<'a, str>,
+    url: Cow<'a, str>,
+    description: Cow<'a, str>,
     color: u32,
-    footer: DiscordFooter,
+    footer: DiscordFooter<'a>,
     timestamp: String,
 }
 
 #[derive(Serialize)]
-struct DiscordFooter {
-    text: String,
+struct DiscordFooter<'a> {
+    text: Cow<'a, str>,
 }
 
-// No #[tokio::main] needed anymore!
 fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
 
@@ -108,25 +108,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             state.save();
         }
 
-        // Standard thread sleep
         thread::sleep(Duration::from_secs(CHECK_INTERVAL_SECONDS));
     }
 }
 
-// Removed 'async', removed 'Client' (ureq creates agents on the fly or you can reuse one)
 fn fetch_and_process_feed(
     feed_config: &FeedConfig,
     state: &mut AppState,
     webhook_url: &str,
 ) -> Result<bool, Box<dyn Error>> {
-    // ureq blocking call
     let response = ureq::get(feed_config.url).call()?;
     let mut content = Vec::new();
     response.into_reader().read_to_end(&mut content)?;
 
     let channel = Channel::read_from(&content[..])?;
 
-    // Parse dates
     let mut items_with_dates: Vec<(&rss::Item, DateTime<FixedOffset>)> = Vec::new();
     for item in channel.items() {
         if let Some(pub_date_str) = item.pub_date() {
@@ -167,7 +163,6 @@ fn fetch_and_process_feed(
         if date > current_max_date {
             current_max_date = date;
         }
-        // Standard thread sleep
         thread::sleep(Duration::from_millis(1000));
     }
 
@@ -183,24 +178,24 @@ fn send_discord_webhook(
     color: u32,
     webhook_url: &str,
 ) -> Result<(), Box<dyn Error>> {
+    let title = item.title().unwrap_or("No Title");
+    let link = item.link().unwrap_or("");
+
+    let description = match item.description() {
+        Some(d) if d.len() > 200 => Cow::Owned(format!("{}...", &d[0..200])),
+        Some(d) => Cow::Borrowed(d),
+        None => Cow::Borrowed("No description"),
+    };
+
     let payload = DiscordMessage {
-        username: "Arch Linux Bot".to_string(),
+        username: Cow::Borrowed("Arch Linux Bot"),
         embeds: vec![DiscordEmbed {
-            title: item.title().unwrap_or("No Title").to_string(),
-            url: item.link().unwrap_or("").to_string(),
-            description: item
-                .description()
-                .map(|d| {
-                    if d.len() > 200 {
-                        format!("{}...", &d[0..200])
-                    } else {
-                        d.to_string()
-                    }
-                })
-                .unwrap_or_else(|| "No description".to_string()),
+            title: Cow::Borrowed(title),
+            url: Cow::Borrowed(link),
+            description,
             color,
             footer: DiscordFooter {
-                text: format!("Source: {}", feed_title),
+                text: Cow::Owned(format!("Source: {}", feed_title)),
             },
             timestamp: Utc::now().to_rfc3339(),
         }],
@@ -211,6 +206,6 @@ fn send_discord_webhook(
         .set("Content-Type", "application/json")
         .send_bytes(&body)?;
 
-    println!("Sent update: {}", item.title().unwrap_or("Unknown"));
+    println!("Sent update: {}", title);
     Ok(())
 }
