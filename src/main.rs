@@ -1,5 +1,4 @@
 use chrono::{DateTime, FixedOffset, Utc};
-use dotenvy::dotenv;
 use rss::Channel;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -80,8 +79,6 @@ struct DiscordFooter<'a> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    dotenv().ok();
-
     let webhook_url = env::var("DISCORD_WEBHOOK_URL")
         .expect("DISCORD_WEBHOOK_URL must be set in .env or environment");
 
