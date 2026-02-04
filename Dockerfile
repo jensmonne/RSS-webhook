@@ -1,6 +1,6 @@
-FROM rust:slim-bullseye AS builder
+FROM rust:alpine AS builder
 
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache musl-dev pkgconfig
 
 WORKDIR /usr/src/app
 
@@ -11,10 +11,9 @@ RUN rm -f target/release/deps/rsswebhook*
 
 COPY src ./src
 RUN cargo build --release
-RUN strip target/release/rsswebhook
 
-FROM debian:bullseye-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates
 COPY --from=builder /usr/src/app/target/release/rsswebhook /usr/local/bin/rsswebhook
 WORKDIR /data
 CMD ["rsswebhook"]
