@@ -12,7 +12,7 @@ chrono = { version = "0.4", default-features = false, features = ["serde", "cloc
 
 [profile.release]
 opt-level = "z"
-lto = true
+lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
