@@ -1,4 +1,4 @@
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset};
 use rss::Channel;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -153,12 +153,15 @@ fn fetch_and_process_feed(
 
     let mut current_max_date = last_seen_option.cloned().unwrap_or(items_to_send[0].1);
 
-    for (item, date) in items_to_send {
-        send_discord_webhook(item, &channel.title, feed_config.color, webhook_url)?;
+    for chunk in items_to_send.chunks(10) {
+        send_discord_batch(chunk, &channel.title, feed_config.color, webhook_url)?;
 
-        if date > current_max_date {
-            current_max_date = date;
+        if let Some((_, date)) = chunk.last() {
+            if *date > current_max_date {
+                current_max_date = *date;
+            }
         }
+
         thread::sleep(Duration::from_millis(1000));
     }
 
@@ -168,39 +171,38 @@ fn fetch_and_process_feed(
     Ok(true)
 }
 
-fn send_discord_webhook(
-    item: &rss::Item,
+fn send_discord_batch(
+    items: &[(&rss::Item, DateTime<FixedOffset>)],
     feed_title: &str,
     color: u32,
     webhook_url: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let title = item.title().unwrap_or("No Title");
-    let link = item.link().unwrap_or("");
+    let mut embeds = Vec::new();
 
-    let raw_desc = item.description().unwrap_or("No description");
+    for (item, date) in items {
+        let title = item.title().unwrap_or("No Title");
+        let link = item.link().unwrap_or("");
+        let raw_desc = item.description().unwrap_or("No description");
 
-    let mut cleaned_desc = String::with_capacity(raw_desc.len());
-    let mut inside_tag = false;
-    for c in raw_desc.chars() {
-        match c {
-            '<' => inside_tag = true,
-            '>' => inside_tag = false,
-            _ if !inside_tag => cleaned_desc.push(c),
-            _ => {}
+        let mut cleaned_desc = String::with_capacity(raw_desc.len());
+        let mut inside_tag = false;
+        for c in raw_desc.chars() {
+            match c {
+                '<' => inside_tag = true,
+                '>' => inside_tag = false,
+                _ if !inside_tag => cleaned_desc.push(c),
+                _ => {}
+            }
         }
-    }
 
-    let final_desc = cleaned_desc.replace("&nbsp;", " ").trim().to_string();
+        let final_desc = cleaned_desc.replace("&nbsp;", " ").trim().to_string();
+        let description = if final_desc.len() > 200 {
+            Cow::Owned(format!("{}...", &final_desc[0..200]))
+        } else {
+            Cow::Owned(final_desc)
+        };
 
-    let description = if final_desc.len() > 200 {
-        Cow::Owned(format!("{}...", &final_desc[0..200]))
-    } else {
-        Cow::Owned(final_desc)
-    };
-
-    let payload = DiscordMessage {
-        username: Cow::Borrowed("Arch Linux Bot"),
-        embeds: vec![DiscordEmbed {
+        embeds.push(DiscordEmbed {
             title: Cow::Borrowed(title),
             url: Cow::Borrowed(link),
             description,
@@ -208,8 +210,13 @@ fn send_discord_webhook(
             footer: DiscordFooter {
                 text: Cow::Owned(format!("{}", feed_title)),
             },
-            timestamp: Utc::now().to_rfc3339(),
-        }],
+            timestamp: date.to_rfc3339(),
+        });
+    }
+
+    let payload = DiscordMessage {
+        username: Cow::Borrowed("Arch Linux Bot"),
+        embeds,
     };
 
     let body = serde_json::to_vec(&payload)?;
@@ -217,6 +224,6 @@ fn send_discord_webhook(
         .set("Content-Type", "application/json")
         .send_bytes(&body)?;
 
-    println!("Sent update: {}", title);
+    println!("Sent batch of {} updates for {}", items.len(), feed_title);
     Ok(())
 }
